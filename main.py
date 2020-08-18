@@ -1,70 +1,106 @@
-import cv2
+# https://velog.io/@davkim1030/Image-Stitching
+
+import cv2, glob, os, sys
 import numpy as np
 import matplotlib.pyplot as plt
-import glob, os
 
-IMG_NAME = 'scottsdale'
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
+from PyQt5 import uic
 
-img_list = []
-for ext in ('0*.gif', '0*.png', '0*.jpg'):
-    img_list.extend(glob.glob(os.path.join('imgs', IMG_NAME, ext)))
+ui_file = uic.loadUiType("ui_design.ui")[0]
 
-img_list = sorted(img_list)
+class WindowClass(QMainWindow, ui_file):
+    def __init__(self):
+        super().__init__()
+        self.setupUi(self)
+        self.setWindowTitle('Panorama Maker')
 
-print(img_list)
+        self.root = ''
+        self.dest = ''
+        self.btnFlag = False
 
-imgs = []
+        self.btn1.clicked.connect(self.button1Function)
+        self.btn2.clicked.connect(self.button2Function)
+        self.btn3.clicked.connect(self.button3Function)
 
-plt.figure(figsize=(5, 5))
+    def button1Function(self):
+        foldername = self.selectFolder(self)
+        self.root = foldername
+        self.folder1.setText(foldername)
 
-for i, img_path in enumerate(img_list):
-    img = cv2.imread(img_path)
-    imgs.append(img)
+    def button2Function(self):
+        foldername = self.selectFolder(self)
+        self.dest = foldername
+        self.folder2.setText(foldername)
+        
+    def button3Function(self):
+        if not self.btnFlag:
+            makePanorama(self, self.root, self.dest)
 
-    plt.subplot(len(img_list) // 3 + 1, 3, i + 1)
-    plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    def selectFolder(self, arg):
+        foldername = QFileDialog.getExistingDirectory(self, "Select Directory")
+        return foldername
 
-mode = cv2.STITCHER_PANORAMA
-# 스캔본 이어붙이기 모드
-# mode = cv2.STITCHER_SCANS
+def makePanorama(self, root, dest):
+    if root.replace(' ', '') == '' or dest.replace(' ', '') == '':
+        buttonReply = QMessageBox.warning(self, 'Warning', 'Please enter the folder path', QMessageBox.Cancel)
+    else:
+        self.btnFlag = True
+        img_list = []
+        imgs = []
 
+        for file in glob.iglob(root + '\\**', recursive=True):
+            if os.path.splitext(file)[1] not in ['.jpg', '.png']:
+                continue
+            
+            img_list.append(file)
+            print(file)
 
-if int(cv2.__version__[0]) == 3:
-    stitcher = cv2.createStitcher(mode)
-else:
-    stitcher = cv2.Stitcher_create(mode)
+        img_list = sorted(img_list)
 
-status, stitched = stitcher.stitch(imgs)
+        try:
+            for i, img_path in enumerate(img_list):
+                img = cv2.imread(img_path)
+                imgs.append(img)
 
-if status == 0:
-    cv2.imwrite(os.path.join('imgs', IMG_NAME, 'result.jpg'), stitched)
+            stitcher = cv2.Stitcher_create(cv2.STITCHER_PANORAMA)
+            status, stitched = stitcher.stitch(imgs)
 
-    plt.figure(figsize=(5, 5))
-    plt.imshow(cv2.cvtColor(stitched, cv2.COLOR_BGR2RGB))
-else:
-    print('failed... %s' % status)
+            # if status == 0:
+            #     plt.imshow(cv2.cvtColor(stitched, cv2.COLOR_BGR2RGB))
+            #     plt.show()
+            # else:
+            #     print('failed... %s' % status)
 
-gray = cv2.cvtColor(stitched, cv2.COLOR_BGR2GRAY)
-# 이미지를 threshold(임계값)를 지정하여 binary 이미지(흑백)으로 만든다.
-# bitwise_not을 이용해 흑백 이미지를 반전시킨다.
-thresh = cv2.bitwise_not(cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY)[1])
-thresh = cv2.medianBlur(thresh, 5)
-# medialBlur()을 이용해 이미지의 노이즈를 제거한다. 이미지를 뭉개는 효과
+            gray = cv2.cvtColor(stitched, cv2.COLOR_BGR2GRAY)
+            thresh = cv2.bitwise_not(cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY)[1])
+            thresh = cv2.medianBlur(thresh, 5)
 
-plt.figure(figsize=(5, 5))
-plt.imshow(thresh, cmap='gray')
+            stitched_copy = stitched.copy()
+            thresh_copy = thresh.copy()
 
-stitched_copy = stitched.copy()
-thresh_copy = thresh.copy()
+            while np.sum(thresh_copy) > 0:
+                thresh_copy = thresh_copy[1:-1, 1:-1]
+                stitched_copy = stitched_copy[1:-1, 1:-1]
 
-# np.sum(): 행렬의 모든 요소의 합
-while np.sum(thresh_copy) > 0:
-    thresh_copy = thresh_copy[1:-1, 1:-1]
-    stitched_copy = stitched_copy[1:-1, 1:-1]
+            cv2.imwrite(os.path.join(dest, 'result_crop.jpg'), stitched_copy)
+            buttonReply = QMessageBox.information(self, 'Succeess', 'Make Panorama Succeed', QMessageBox.Ok)
+            self.btnFlag = False
+            # plt.imshow(cv2.cvtColor(stitched_copy, cv2.COLOR_BGR2RGB))
+            # plt.show()
+        except Exception as e:
+            buttonReply = QMessageBox.critical(self, 'Error', "It's not a similar image or can't find anything in common between the images.", QMessageBox.Ok)
+            self.btnFlag = False
+            print(e)
 
-cv2.imwrite(os.path.join('imgs', IMG_NAME, 'result_crop.jpg'), stitched_copy)
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
 
-plt.figure(figsize=(5, 5))
-plt.imshow(cv2.cvtColor(stitched_copy, cv2.COLOR_BGR2RGB))
+    qss_file = open('ui_style.qss').read()
+    app.setStyleSheet(qss_file)
 
-plt.show()
+    myWindow = WindowClass()
+    myWindow.show()
+    app.exec_()
